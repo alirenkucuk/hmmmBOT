@@ -4,9 +4,10 @@ import sqlite3
 import threading
 from telegram import Update, Bot
 from telegram.ext import Updater, CommandHandler, CallbackContext
+import json # JSON işlemleri için
 
 # ----- CONFIGURATION -----
-BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN_HERE"
+BOT_TOKEN = "YOUR_TELEGRAM_BOT_TOKEN_HERE"  # Buraya kendi bot token'ınızı yapıştırın
 DB_PATH = "users.db"
 CHECK_INTERVAL = 600  # saniye cinsinden, 600 = 10 dakika
 
@@ -44,11 +45,8 @@ def add_user(chat_id: int):
 
 def get_all_users():
     conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT chat_id FROM users")
-    rows = c.fetchall()
-    conn.close()
-    return [row[0] for row in rows]
+    c = conn.close()
+    return [row[0] for row in c.fetchall()]
 
 # ----- TELEGRAM KOMUTLARI -----
 def start(update: Update, context: CallbackContext):
@@ -61,23 +59,33 @@ def help_command(update: Update, context: CallbackContext):
     update.message.reply_text(WELCOME_MESSAGE)
 
 # ----- BİLDİRİM İŞLEVİ -----
-# API üzerinden sınav boşluğu kontrolü
-API_URL = "https://ielts.idp.com/api/testsession/availability"
-API_PARAMS = {
-    "countryId": 212,
-    "testCentreId": 11995,
+# Avni'nin API endpoint ve parametreleri kullanılıyor
+API_URL = "https://ielts.idp.com/book/Json/FindAvailableTestSessionForNewBooking"
+HEADERS = {
+    "Accept": "*/*",
+    "Content-Type": "application/json",
+    "User-Agent": "Mozilla/5.0",
+    "X-Requested-With": "XMLHttpRequest",
+    "Origin": "https://ielts.idp.com",
+    "Referer": "https://ielts.idp.com/book/IELTS?countryId=212&testCentreId=11995&testVenueId=1771",
+}
+PAYLOAD = {
+    "testSessionFromDate": "2025-Jun-01", # Kontrol edilecek başlangıç tarihi
+    "testSessionToDate": "2025-Jul-31",   # Kontrol edilecek bitiş tarihi
     "testVenueId": 1771,
-    "testCentreLocationId": 1654,
-    "testSessionDate": "2025-06-28T00:00:00.0000000",
-    "isSelt": "false",
-    "restrictToSpecifiedDate": "true",
-    "testmoduleid": 1,
+    "testCentreId": 11995,
+    "testModules": [1, 7], # 1: Academic, 7: General Training
+    "testFormatId": 1,
+    "specialNeedId": "",
+    "isSelt": False,
     "token": "d02942a0c5bfd2446de2c0049cc303a0137f98b43ee5d5266201ebfdc4778cad"
 }
-HEADERS = {
-    "User-Agent": "Mozilla/5.0",
-    "Accept": "application/json"
+# Opsiyonel: Çerez gerekiyorsa buraya eklenebilir
+COOKIES = {
+    "ASP.NET_SessionId": "y4oo4s54jkdmstrnqhe3hwxf",
+    # diğer önemli çerezleri buraya eklemen gerekebilir
 }
+
 
 def inform_users(bot: Bot, message: str):
     users = get_all_users()
@@ -91,19 +99,35 @@ def inform_users(bot: Bot, message: str):
 def check_availability_loop(bot: Bot):
     while True:
         try:
-            response = requests.get(API_URL, params=API_PARAMS, headers=HEADERS)
+            response = requests.post(API_URL, headers=HEADERS, json=PAYLOAD, cookies=COOKIES)
             if response.status_code == 200:
                 data = response.json()
-                # TODO: data içinden uygun şartları kontrol edin
-                # Örnek: eğer availableSlots > 0 ise bildir
-                available = data.get("availableSlots", 0)
-                if available and available > 0:
-                    msg = f"Dikkat! {API_PARAMS['testSessionDate']} tarihli oturumda {available} boş kontenjan bulundu."
+                available_sessions = []
+
+                for session in data.get("data", []):
+                    if session.get("isAvailable"):
+                        available_sessions.append({
+                            "date": session.get("testSessionDate"),
+                            "module": session.get("moduleName"),
+                            "availableSeats": session.get("availableCapacity")
+                        })
+
+                if available_sessions:
+                    msg = "🟢 **Uygun IELTS Sınav Tarihleri Bulundu!**\n\n"
+                    for s in available_sessions:
+                        msg += f"🗓️ **Tarih:** {s['date']}\n"
+                        msg += f"📚 **Modül:** {s['module']}\n"
+                        msg += f"🪑 **Boş Koltuk:** {s['availableSeats']}\n"
+                        msg += "-----------------------------------\n"
                     inform_users(bot, msg)
+                    print("Uygun tarihler bulundu ve kullanıcılara bildirildi.")
+                else:
+                    print("Şu anda uygun sınav tarihi yok.")
             else:
                 print(f"API hatası: {response.status_code}")
+                print(response.text)
         except Exception as err:
-            print(f"Hata: {err}")
+            print(f"Hata oluştu: {err}")
         time.sleep(CHECK_INTERVAL)
 
 # ----- MAIN -----
@@ -126,78 +150,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-#Avni Part
-import requests
-import json
-import time
-
-# API endpoint
-url = "https://ielts.idp.com/book/Json/FindAvailableTestSessionForNewBooking"
-
-# Header bilgileri (User-Agent vs. kritik)
-headers = {
-    "Accept": "*/*",
-    "Content-Type": "application/json",
-    "User-Agent": "Mozilla/5.0",
-    "X-Requested-With": "XMLHttpRequest",
-    "Origin": "https://ielts.idp.com",
-    "Referer": "https://ielts.idp.com/book/IELTS?countryId=212&testCentreId=11995&testVenueId=1771",
-}
-
-# İsteğe özel token ve parametrelerle body
-payload = {
-    "testSessionFromDate": "2025-Jun-01",
-    "testSessionToDate": "2025-Jul-31",
-    "testVenueId": 1771,
-    "testCentreId": 11995,
-    "testModules": [1, 7],
-    "testFormatId": 1,
-    "specialNeedId": "",
-    "isSelt": False,
-    "token": "d02942a0c5bfd2446de2c0049cc303a0137f98b43ee5d5266201ebfdc4778cad"
-}
-
-# Opsiyonel: Çerez gerekiyorsa buraya eklenebilir
-cookies = {
-    "ASP.NET_SessionId": "y4oo4s54jkdmstrnqhe3hwxf",
-    # diğer önemli çerezleri buraya eklemen gerekebilir
-}
-
-def check_available_dates():
-    try:
-        response = requests.post(url, headers=headers, json=payload, cookies=cookies)
-        if response.status_code == 200:
-            data = response.json()
-            available = []
-
-            for session in data.get("data", []):
-                if session.get("isAvailable"):
-                    available.append({
-                        "date": session.get("testSessionDate"),
-                        "module": session.get("moduleName"),
-                        "availableSeats": session.get("availableCapacity")
-                    })
-
-            if available:
-                print("\n🟢 Uygun Tarihler Bulundu:")
-                for s in available:
-                    print(f"{s['date']} — {s['module']} — {s['availableSeats']} koltuk")
-            else:
-                print("🔴 Şu anda uygun sınav tarihi yok.")
-        else:
-            print(f"❌ Hata: Status Code {response.status_code}")
-            print(response.text)
-    except Exception as e:
-        print(f"⚠️ Hata oluştu: {e}")
-
-# Manuel çalıştırma
-check_available_dates()
-
-# (İsteğe bağlı) Periyodik tarama
-# while True:
-#     check_available_dates()
-#     time.sleep(3600)  # 1 saatte bir çalışır
-
