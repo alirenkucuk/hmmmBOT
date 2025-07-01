@@ -126,3 +126,78 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+
+#Avni Part
+import requests
+import json
+import time
+
+# API endpoint
+url = "https://ielts.idp.com/book/Json/FindAvailableTestSessionForNewBooking"
+
+# Header bilgileri (User-Agent vs. kritik)
+headers = {
+    "Accept": "*/*",
+    "Content-Type": "application/json",
+    "User-Agent": "Mozilla/5.0",
+    "X-Requested-With": "XMLHttpRequest",
+    "Origin": "https://ielts.idp.com",
+    "Referer": "https://ielts.idp.com/book/IELTS?countryId=212&testCentreId=11995&testVenueId=1771",
+}
+
+# İsteğe özel token ve parametrelerle body
+payload = {
+    "testSessionFromDate": "2025-Jun-01",
+    "testSessionToDate": "2025-Jul-31",
+    "testVenueId": 1771,
+    "testCentreId": 11995,
+    "testModules": [1, 7],
+    "testFormatId": 1,
+    "specialNeedId": "",
+    "isSelt": False,
+    "token": "d02942a0c5bfd2446de2c0049cc303a0137f98b43ee5d5266201ebfdc4778cad"
+}
+
+# Opsiyonel: Çerez gerekiyorsa buraya eklenebilir
+cookies = {
+    "ASP.NET_SessionId": "y4oo4s54jkdmstrnqhe3hwxf",
+    # diğer önemli çerezleri buraya eklemen gerekebilir
+}
+
+def check_available_dates():
+    try:
+        response = requests.post(url, headers=headers, json=payload, cookies=cookies)
+        if response.status_code == 200:
+            data = response.json()
+            available = []
+
+            for session in data.get("data", []):
+                if session.get("isAvailable"):
+                    available.append({
+                        "date": session.get("testSessionDate"),
+                        "module": session.get("moduleName"),
+                        "availableSeats": session.get("availableCapacity")
+                    })
+
+            if available:
+                print("\n🟢 Uygun Tarihler Bulundu:")
+                for s in available:
+                    print(f"{s['date']} — {s['module']} — {s['availableSeats']} koltuk")
+            else:
+                print("🔴 Şu anda uygun sınav tarihi yok.")
+        else:
+            print(f"❌ Hata: Status Code {response.status_code}")
+            print(response.text)
+    except Exception as e:
+        print(f"⚠️ Hata oluştu: {e}")
+
+# Manuel çalıştırma
+check_available_dates()
+
+# (İsteğe bağlı) Periyodik tarama
+# while True:
+#     check_available_dates()
+#     time.sleep(3600)  # 1 saatte bir çalışır
+
